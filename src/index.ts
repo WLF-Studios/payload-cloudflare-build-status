@@ -1,113 +1,65 @@
-import type { CollectionSlug, Config } from 'payload'
+import type { Config, Endpoint, Plugin } from 'payload'
 
-import { customEndpointHandler } from './endpoints/customEndpointHandler.js'
+import type { CloudflareBuildStatusPluginConfig } from './types.js'
 
-export type Config = {
-  /**
-   * List of collections to add a custom field
-   */
-  collections?: Partial<Record<CollectionSlug, true>>
-  disabled?: boolean
+import { cloudflareBuildStatusHandler } from './endpoints/cloudflareBuildStatusHandler.js'
+
+export type { CloudflareBuildStatusPluginConfig } from './types.js'
+
+export const cloudflareBuildStatusPluginDefaults = {
+  componentPath: 'payload-cloudflare-build-status/client#CloudflareBuildStatus',
+  endpointPath: '/cloudflare-build-status',
+  pollIntervalSeconds: 10,
+} as const
+
+const pluginCustomKey = 'cloudflareBuildStatusPlugin'
+
+function normalizeEndpointPath(path: string): string {
+  return path.startsWith('/') ? path : `/${path}`
 }
 
-export const  =
-  (pluginOptions: Config) =>
+function getEndpoints(config: Config): Endpoint[] {
+  return Array.isArray(config.endpoints) ? [...config.endpoints] : []
+}
+
+export const cloudflareBuildStatusPlugin =
+  (pluginOptions: CloudflareBuildStatusPluginConfig = {}): Plugin =>
   (config: Config): Config => {
-    if (!config.collections) {
-      config.collections = []
-    }
-
-    config.collections.push({
-      slug: 'plugin-collection',
-      fields: [
-        {
-          name: 'id',
-          type: 'text',
-        },
-      ],
-    })
-
-    if (pluginOptions.collections) {
-      for (const collectionSlug in pluginOptions.collections) {
-        const collection = config.collections.find(
-          (collection) => collection.slug === collectionSlug,
-        )
-
-        if (collection) {
-          collection.fields.push({
-            name: 'addedByPlugin',
-            type: 'text',
-            admin: {
-              position: 'sidebar',
-            },
-          })
-        }
-      }
-    }
-
-    /**
-     * If the plugin is disabled, we still want to keep added collections/fields so the database schema is consistent which is important for migrations.
-     * If your plugin heavily modifies the database schema, you may want to remove this property.
-     */
     if (pluginOptions.disabled) {
       return config
     }
 
-    if (!config.endpoints) {
-      config.endpoints = []
-    }
-
-    if (!config.admin) {
-      config.admin = {}
-    }
-
-    if (!config.admin.components) {
-      config.admin.components = {}
-    }
-
-    if (!config.admin.components.beforeDashboard) {
-      config.admin.components.beforeDashboard = []
-    }
-
-    config.admin.components.beforeDashboard.push(
-      `/client#BeforeDashboardClient`,
+    const endpointPath = normalizeEndpointPath(
+      pluginOptions.endpointPath ?? cloudflareBuildStatusPluginDefaults.endpointPath,
     )
-    config.admin.components.beforeDashboard.push(
-      `/rsc#BeforeDashboardServer`,
-    )
+    const componentPath =
+      pluginOptions.componentPath ?? cloudflareBuildStatusPluginDefaults.componentPath
+    const pollIntervalSeconds =
+      pluginOptions.pollIntervalSeconds ?? cloudflareBuildStatusPluginDefaults.pollIntervalSeconds
 
-    config.endpoints.push({
-      handler: customEndpointHandler,
-      method: 'get',
-      path: '/my-plugin-endpoint',
-    })
-
-    const incomingOnInit = config.onInit
-
-    config.onInit = async (payload) => {
-      // Ensure we are executing any existing onInit functions before running our own.
-      if (incomingOnInit) {
-        await incomingOnInit(payload)
-      }
-
-      const { totalDocs } = await payload.count({
-        collection: 'plugin-collection',
-        where: {
-          id: {
-            equals: 'seeded-by-plugin',
-          },
+    return {
+      ...config,
+      admin: {
+        ...(config.admin ?? {}),
+        components: {
+          ...(config.admin?.components ?? {}),
+          actions: [...(config.admin?.components?.actions ?? []), componentPath],
         },
-      })
-
-      if (totalDocs === 0) {
-        await payload.create({
-          collection: 'plugin-collection',
-          data: {
-            id: 'seeded-by-plugin',
-          },
-        })
-      }
+      },
+      custom: {
+        ...(config.custom ?? {}),
+        [pluginCustomKey]: {
+          endpointPath,
+          pollIntervalSeconds,
+        },
+      },
+      endpoints: [
+        ...getEndpoints(config),
+        {
+          handler: cloudflareBuildStatusHandler,
+          method: 'get',
+          path: endpointPath,
+        },
+      ],
     }
-
-    return config
   }

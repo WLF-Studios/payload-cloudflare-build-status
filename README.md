@@ -1,218 +1,167 @@
-# Payload Plugin Template
+# payload-cloudflare-build-status
 
-A template repo to create a [Payload CMS](https://payloadcms.com) plugin.
+Payload admin plugin that shows the latest Cloudflare Workers Build status as a compact admin badge.
 
-Payload is built with a robust infrastructure intended to support Plugins with ease. This provides a simple, modular, and reusable way for developers to extend the core capabilities of Payload.
+Built for headless Payload setups, especially Payload plus an Astro SSG frontend deployed through Cloudflare Workers Builds. It is display-only: it does not trigger deploys, add schema, or expose Cloudflare secrets to the browser.
 
-To build your own Payload plugin, all you need is:
+Tested with Payload `3.84` and Next.js `16.2`.
 
-- An understanding of the basic Payload concepts
-- And some JavaScript/Typescript experience
+## Install
 
-## Background
+```bash
+pnpm add payload-cloudflare-build-status
+```
 
-Here is a short recap on how to integrate plugins with Payload, to learn more visit the [plugin overview page](https://payloadcms.com/docs/plugins/overview).
+## Quick Setup
 
-### How to install a plugin
-
-To install any plugin, simply add it to your payload.config() in the Plugin array.
+Add `cloudflareBuildStatusPlugin()` to your Payload config file `src/payload.config.ts`:
 
 ```ts
-import myPlugin from 'my-plugin'
+// src/payload.config.ts
+import { buildConfig } from 'payload'
+import { cloudflareBuildStatusPlugin } from 'payload-cloudflare-build-status'
 
-export const config = buildConfig({
+export default buildConfig({
   plugins: [
-    // You can pass options to the plugin
-    myPlugin({
-      enabled: true,
-    }),
+    cloudflareBuildStatusPlugin(),
   ],
 })
 ```
 
-### Initialization
+Add the Cloudflare credentials to your server environment file, usually `.env`:
 
-The initialization process goes in the following order:
-
-1. Incoming config is validated
-2. **Plugins execute**
-3. Default options are integrated
-4. Sanitization cleans and validates data
-5. Final config gets initialized
-
-## Building the Plugin
-
-When you build a plugin, you are purely building a feature for your project and then abstracting it outside of the project.
-
-### Template Files
-
-In the Payload [plugin template](https://github.com/payloadcms/payload/tree/3.x/templates/plugin), you will see a common file structure that is used across all plugins:
-
-1. root folder
-2. /src folder
-3. /dev folder
-
-#### Root
-
-In the root folder, you will see various files that relate to the configuration of the plugin. We set up our environment in a similar manner in Payload core and across other projects, so hopefully these will look familiar:
-
-- **README**.md\* - This contains instructions on how to use the template. When you are ready, update this to contain instructions on how to use your Plugin.
-- **package**.json\* - Contains necessary scripts and dependencies. Overwrite the metadata in this file to describe your Plugin.
-- .**eslint**.config.js - Eslint configuration for reporting on problematic patterns.
-- .**gitignore** - List specific untracked files to omit from Git.
-- .**prettierrc**.json - Configuration for Prettier code formatting.
-- **tsconfig**.json - Configures the compiler options for TypeScript
-- .**swcrc** - Configuration for SWC, a fast compiler that transpiles and bundles TypeScript.
-- **vitest**.config.js - Config file for Vitest, defining how tests are run and how modules are resolved
-
-**IMPORTANT\***: You will need to modify these files.
-
-#### Dev
-
-In the dev folder, you’ll find a basic payload project, created with `npx create-payload-app` and the blank template.
-
-**IMPORTANT**: Make a copy of the `.env.example` file and rename it to `.env`. Update the `DATABASE_URL` to match the database you are using and your plugin name. Update `PAYLOAD_SECRET` to a unique string.
-**You will not be able to run `pnpm/yarn dev` until you have created this `.env` file.**
-
-`myPlugin` has already been added to the `payload.config()` file in this project.
-
-```ts
-plugins: [
-  myPlugin({
-    collections: {
-      posts: true,
-    },
-  }),
-]
+```env
+CF_ACCOUNT_ID=your-account-id
+CF_API_TOKEN=your-api-token
+CF_WORKER_TAG=your-worker-tag
 ```
 
-Later when you rename the plugin or add additional options, **make sure to update it here**.
+If you prefer selecting the Worker by name instead of tag, use `CF_WORKER_NAME` instead of `CF_WORKER_TAG`.
 
-You may wish to add collections or expand the test project depending on the purpose of your plugin. Just make sure to keep this dev environment as simplified as possible - users should be able to install your plugin without additional configuration required.
+If needed, refresh the generated Payload admin import map file, usually `app/(payload)/admin/importMap.js`:
 
-When you’re ready to start development, initiate the project with `pnpm/npm/yarn dev` and pull up [http://localhost:3000](http://localhost:3000) in your browser.
+```bash
+pnpm payload generate:importmap
+```
 
-#### Src
+## Environment
 
-Now that we have our environment setup and we have a dev project ready to - it’s time to build the plugin!
+Required server-side env vars:
 
-**index.ts**
+- `CF_ACCOUNT_ID`
+- `CF_API_TOKEN`
 
-The essence of a Payload plugin is simply to extend the payload config - and that is exactly what we are doing in this file.
+Worker selector:
 
-```ts
-export const myPlugin =
-  (pluginOptions: MyPluginConfig) =>
-  (config: Config): Config => {
-    // do cool stuff with the config here
+- `CF_WORKER_TAG` is preferred
+- `CF_WORKER_NAME` can be used instead; the plugin resolves it to the immutable Worker tag on the server
 
-    return config
+Optional live-site link:
+
+- `PUBLIC_SITE_URL`
+
+The Cloudflare token needs Workers Builds Configuration edit access. If using `CF_WORKER_NAME` or fetching the tag manually, it also needs Workers Scripts read access.
+
+## Get the Worker Tag
+
+Cloudflare's Builds API calls this value `external_script_id`. The Workers Scripts API returns it as `tag`.
+
+Use a token with Workers Scripts read access, then list your Workers.
+
+PowerShell:
+
+```powershell
+$accountId = "your-account-id"
+$token = "your-api-token"
+
+$response = Invoke-RestMethod `
+  -Uri "https://api.cloudflare.com/client/v4/accounts/$accountId/workers/scripts" `
+  -Headers @{ Authorization = "Bearer $token" }
+
+$response.result | ForEach-Object {
+  [pscustomobject]@{
+    name = $_.id
+    tag = $_.tag
   }
-```
-
-First, we receive the existing payload config along with any plugin options.
-
-From here, you can extend the config as you wish.
-
-Finally, you return the config and that is it!
-
-##### Spread Syntax
-
-Spread syntax (or the spread operator) is a feature in JavaScript that uses the dot notation **(...)** to spread elements from arrays, strings, or objects into various contexts.
-
-We are going to use spread syntax to allow us to add data to existing arrays without losing the existing data. It is crucial to spread the existing data correctly – else this can cause adverse behavior and conflicts with Payload config and other plugins.
-
-Let’s say you want to build a plugin that adds a new collection:
-
-```ts
-config.collections = [
-  ...(config.collections || []),
-  // Add additional collections here
-]
-```
-
-First we spread the `config.collections` to ensure that we don’t lose the existing collections, then you can add any additional collections just as you would in a regular payload config.
-
-This same logic is applied to other properties like admin, hooks, globals:
-
-```ts
-config.globals = [
-  ...(config.globals || []),
-  // Add additional globals here
-]
-
-config.hooks = {
-  ...(incomingConfig.hooks || {}),
-  // Add additional hooks here
 }
 ```
 
-Some properties will be slightly different to extend, for instance the onInit property:
+Bash:
 
-```ts
-import { onInitExtension } from './onInitExtension' // example file
-
-config.onInit = async (payload) => {
-  if (incomingConfig.onInit) await incomingConfig.onInit(payload)
-  // Add additional onInit code by defining an onInitExtension function
-  onInitExtension(pluginOptions, payload)
-}
+```bash
+curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/scripts" \
+  --header "Authorization: Bearer $CF_API_TOKEN" \
+  | jq '.result[] | {name: .id, tag: .tag}'
 ```
 
-If you wish to add to the onInit, you must include the **async/await**. We don’t use spread syntax in this case, instead you must await the existing `onInit` before running additional functionality.
+Copy the `tag` for your Worker into `.env`:
 
-In the template, we have stubbed out some addition `onInit` actions that seeds in a document to the `plugin-collection`, you can use this as a base point to add more actions - and if not needed, feel free to delete it.
-
-##### Types.ts
-
-If your plugin has options, you should define and provide types for these options.
-
-```ts
-export type MyPluginConfig = {
-  /**
-   * List of collections to add a custom field
-   */
-  collections?: Partial<Record<CollectionSlug, true>>
-  /**
-   * Disable the plugin
-   */
-  disabled?: boolean
-}
+```env
+CF_WORKER_TAG=1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
 ```
 
-If possible, include JSDoc comments to describe the options and their types. This allows a developer to see details about the options in their editor.
+After `CF_WORKER_TAG` is set, the plugin does not need Workers Scripts read access for the Worker-name lookup.
 
-##### Testing
+## What It Adds
 
-Having a test suite for your plugin is essential to ensure quality and stability. **Vitest** is a fast, modern testing framework that works seamlessly with Vite and supports TypeScript out of the box.
+- a Payload admin action badge
+- `GET /api/cloudflare-build-status`
+- status labels for loading, building, queued, live, failed, canceled, ready, config missing, and error
+- one initial status fetch when the admin loads
+- polling every 10 seconds only while a Worker build is queued or running
+- short post-save watching: every 2 seconds for up to 30 seconds after a Payload save
 
-Vitest organizes tests into test suites and cases, similar to other testing frameworks. We recommend creating individual tests based on the expected behavior of your plugin from start to finish.
-
-Writing tests with Vitest is very straightforward, and you can learn more about how it works in the [Vitest documentation.](https://vitest.dev/)
-
-For this template, we stubbed out `int.spec.ts` in the `dev` folder where you can write your tests.
+## Configuration
 
 ```ts
-describe('Plugin tests', () => {
-  // Create tests to ensure expected behavior from the plugin
-  it('some condition that must be met', () => {
-   // Write your test logic here
-   expect(...)
-  })
+// src/payload.config.ts
+cloudflareBuildStatusPlugin({
+  endpointPath: '/cloudflare-build-status',
+  componentPath: 'payload-cloudflare-build-status/client#CloudflareBuildStatus',
+  pollIntervalSeconds: 10,
+  disabled: false,
 })
 ```
 
-## Best practices
+Options:
 
-With this tutorial and the plugin template, you should have everything you need to start building your own plugin.
-In addition to the setup, here are other best practices aim we follow:
+- `endpointPath`: Payload API endpoint path registered by the plugin.
+- `componentPath`: Payload admin import-map path for the badge component.
+- `pollIntervalSeconds`: polling interval, in seconds, while a Cloudflare build is queued or running.
+- `disabled`: disables the plugin without changing the rest of your Payload config.
 
-- **Providing an enable / disable option:** For a better user experience, provide a way to disable the plugin without uninstalling it. This is especially important if your plugin adds additional webpack aliases, this will allow you to still let the webpack run to prevent errors.
-- **Include tests in your GitHub CI workflow**: If you’ve configured tests for your package, integrate them into your workflow to run the tests each time you commit to the plugin repository. Learn more about [how to configure tests into your GitHub CI workflow.](https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-nodejs)
-- **Publish your finished plugin to NPM**: The best way to share and allow others to use your plugin once it is complete is to publish an NPM package. This process is straightforward and well documented, find out more [creating and publishing a NPM package here.](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/).
-- **Add payload-plugin topic tag**: Apply the tag **payload-plugin **to your GitHub repository. This will boost the visibility of your plugin and ensure it gets listed with [existing payload plugins](https://github.com/topics/payload-plugin).
-- **Use [Semantic Versioning](https://semver.org/) (SemVar)** - With the SemVar system you release version numbers that reflect the nature of changes (major, minor, patch). Ensure all major versions reference their Payload compatibility.
+## Development
 
-# Questions
+For local plugin development, use the internal `dev/` app:
 
-Please contact [Payload](mailto:dev@payloadcms.com) with any questions about using this plugin template.
+```bash
+pnpm install
+pnpm dev
+pnpm generate:types
+pnpm generate:importmap
+```
+
+Plugin source is in `src/`. The internal test app is in `dev/`, with its Payload config at `dev/payload.config.ts`.
+The dev app maps `payload-cloudflare-build-status/*` package imports back to `../src/*` in `dev/tsconfig.json`, so the generated admin import map works before the package has been built to `dist/`.
+
+For checks:
+
+```bash
+pnpm test:int
+pnpm lint
+```
+
+## Test in Another Project
+
+For release validation, test the packed artifact instead of a live source-folder dependency:
+
+```bash
+pnpm build
+pnpm pack
+```
+
+Then in the external consumer app:
+
+```bash
+pnpm add /path/payload-cloudflare-build-status-*.tgz
+```

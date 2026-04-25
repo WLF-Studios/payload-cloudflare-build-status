@@ -1,1 +1,1 @@
-export { BeforeDashboardClient } from '../components/BeforeDashboardClient.js'
+export { CloudflareBuildStatus, default } from '../components/CloudflareBuildStatus.js'

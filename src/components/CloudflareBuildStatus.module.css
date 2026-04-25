@@ -1,0 +1,67 @@
+.wrapper {
+  align-items: center;
+  display: flex;
+  margin-right: 4px;
+}
+
+.badge {
+  align-items: center;
+  background: var(--theme-elevation-50);
+  border: 0;
+  border-radius: var(--style-radius-l, var(--style-radius-m, 8px));
+  box-sizing: border-box;
+  color: var(--theme-text);
+  display: inline-flex;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  gap: 6px;
+  justify-content: center;
+  line-height: 1;
+  min-block-size: 2.3rem;
+  min-width: 0;
+  padding-inline: 0.65rem;
+  text-decoration: none;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.dot {
+  block-size: 8px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  inline-size: 8px;
+}
+
+.dotActive {
+  animation: cloudflare-build-status-pulse 1.5s ease-out infinite;
+}
+
+.text {
+  min-inline-size: 0;
+  white-space: nowrap;
+}
+
+.timer {
+  flex-shrink: 0;
+  font-family: monospace;
+  font-size: inherit;
+  font-weight: 500;
+}
+
+.metaText {
+  color: var(--theme-elevation-500);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@keyframes cloudflare-build-status-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(249, 115, 22, 0.45);
+  }
+
+  100% {
+    box-shadow: 0 0 0 6px rgba(249, 115, 22, 0);
+  }
+}

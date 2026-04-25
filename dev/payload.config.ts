@@ -2,11 +2,11 @@ import { mongooseAdapter } from '@payloadcms/db-mongodb'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { MongoMemoryReplSet } from 'mongodb-memory-server'
 import path from 'path'
-import { buildConfig } from 'payload'
-import {  } from ''
+import { buildConfig, type CollectionConfig } from 'payload'
 import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
+import { cloudflareBuildStatusPlugin } from '../src/index.js'
 import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
 
@@ -15,6 +15,25 @@ const dirname = path.dirname(filename)
 
 if (!process.env.ROOT_DIR) {
   process.env.ROOT_DIR = dirname
+}
+
+const Users: CollectionConfig = {
+  slug: 'users',
+  auth: true,
+  fields: [],
+}
+
+const Posts: CollectionConfig = {
+  slug: 'posts',
+  fields: [],
+}
+
+const Media: CollectionConfig = {
+  slug: 'media',
+  fields: [],
+  upload: {
+    staticDir: path.resolve(dirname, 'media'),
+  },
 }
 
 const buildConfigWithMemoryDB = async () => {
@@ -34,20 +53,9 @@ const buildConfigWithMemoryDB = async () => {
       importMap: {
         baseDir: path.resolve(dirname),
       },
+      user: Users.slug,
     },
-    collections: [
-      {
-        slug: 'posts',
-        fields: [],
-      },
-      {
-        slug: 'media',
-        fields: [],
-        upload: {
-          staticDir: path.resolve(dirname, 'media'),
-        },
-      },
-    ],
+    collections: [Users, Posts, Media],
     db: mongooseAdapter({
       ensureIndexes: true,
       url: process.env.DATABASE_URL || '',
@@ -57,13 +65,7 @@ const buildConfigWithMemoryDB = async () => {
     onInit: async (payload) => {
       await seed(payload)
     },
-    plugins: [
-      ({
-        collections: {
-          posts: true,
-        },
-      }),
-    ],
+    plugins: [cloudflareBuildStatusPlugin()],
     secret: process.env.PAYLOAD_SECRET || 'test-secret_key',
     sharp,
     typescript: {

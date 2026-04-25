@@ -19,6 +19,15 @@
       "@payload-config": [
         "./payload.config.ts"
       ],
+      "payload-cloudflare-build-status": [
+        "../src/index.ts"
+      ],
+      "payload-cloudflare-build-status/client": [
+        "../src/exports/client.ts"
+      ],
+      "payload-cloudflare-build-status/rsc": [
+        "../src/exports/rsc.ts"
+      ],
       "": [
         "../src/index.ts"
       ],

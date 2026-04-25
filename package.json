@@ -1,38 +1,48 @@
 {
-  "name": "",
+  "name": "payload-cloudflare-build-status",
   "version": "1.0.0",
-  "description": "A blank template to get started with Payload 3.0",
+  "description": "Cloudflare Worker build status badge for Payload admin",
   "license": "MIT",
   "type": "module",
+  "keywords": [
+    "payload",
+    "payloadcms",
+    "payload-plugin",
+    "cloudflare",
+    "workers",
+    "build-status"
+  ],
   "exports": {
     ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./client": {
-      "import": "./src/exports/client.ts",
-      "types": "./src/exports/client.ts",
-      "default": "./src/exports/client.ts"
+      "import": "./dist/exports/client.js",
+      "types": "./dist/exports/client.d.ts",
+      "default": "./dist/exports/client.js"
     },
     "./rsc": {
-      "import": "./src/exports/rsc.ts",
-      "types": "./src/exports/rsc.ts",
-      "default": "./src/exports/rsc.ts"
+      "import": "./dist/exports/rsc.js",
+      "types": "./dist/exports/rsc.d.ts",
+      "default": "./dist/exports/rsc.js"
     }
   },
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
   "scripts": {
-    "build": "pnpm copyfiles && pnpm build:types && pnpm build:swc",
+    "build": "pnpm clean && pnpm build:types && pnpm build:swc && pnpm copyfiles && pnpm build:strip-tests",
+    "build:strip-tests": "rimraf \"dist/**/*.spec.*\"",
     "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
-    "build:types": "tsc --outDir dist --rootDir ./src",
-    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "build:types": "tsc --project tsconfig.build.json",
+    "clean": "rimraf dist \"*.tsbuildinfo\"",
     "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json}\" dist/",
-    "dev": "next dev dev --turbo",
+    "dev": "next dev dev --webpack",
     "dev:generate-importmap": "pnpm dev:payload generate:importmap",
     "dev:generate-types": "pnpm dev:payload generate:types",
     "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
@@ -40,6 +50,8 @@
     "generate:types": "pnpm dev:generate-types",
     "lint": "eslint",
     "lint:fix": "eslint ./src --fix",
+    "prepare": "pnpm clean && pnpm build",
+    "prepublishOnly": "pnpm clean && pnpm build",
     "test": "pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
     "test:int": "vitest"
@@ -105,6 +117,7 @@
       }
     },
     "main": "./dist/index.js",
+    "registry": "https://registry.npmjs.org/",
     "types": "./dist/index.d.ts"
   },
   "pnpm": {
@@ -114,6 +127,5 @@
       "unrs-resolver"
     ]
   },
-  "registry": "https://registry.npmjs.org/",
   "dependencies": {}
 }
