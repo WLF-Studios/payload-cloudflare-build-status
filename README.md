@@ -1,6 +1,10 @@
-# payload-cloudflare-build-status
+# Payload Cloudflare Build Status
 
 Payload admin plugin that shows the latest Cloudflare Workers Build status as a compact admin badge.
+
+<p align="center">
+  <img alt="Cloudflare build status demo" src="assets/cf-build-status.gif" width="100%" />
+</p>
 
 Built for headless Payload setups, especially Payload plus an Astro SSG frontend deployed through Cloudflare Workers Builds. It is display-only: it does not trigger deploys, add schema, or expose Cloudflare secrets to the browser.
 
