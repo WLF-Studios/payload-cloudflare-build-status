@@ -86,9 +86,9 @@ describe('getCloudflareBuildStatus', () => {
 
     const result = await getCloudflareBuildStatus({
       env: {
-        CF_ACCOUNT_ID: 'account-id',
-        CF_API_TOKEN: 'api-token',
-        CF_WORKER_TAG: 'worker-tag',
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'api-token',
+        CLOUDFLARE_WORKER_TAG: 'worker-tag',
         PUBLIC_SITE_URL: 'https://example.com',
       },
       fetchFn,
@@ -148,9 +148,9 @@ describe('getCloudflareBuildStatus', () => {
 
     const result = await getCloudflareBuildStatus({
       env: {
-        CF_ACCOUNT_ID: 'account-id',
-        CF_API_TOKEN: 'api-token',
-        CF_WORKER_TAG: 'worker-tag',
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'api-token',
+        CLOUDFLARE_WORKER_TAG: 'worker-tag',
       },
       fetchFn,
     })
@@ -185,9 +185,9 @@ describe('getCloudflareBuildStatus', () => {
 
     const result = await getCloudflareBuildStatus({
       env: {
-        CF_ACCOUNT_ID: 'account-id',
-        CF_API_TOKEN: 'api-token',
-        CF_WORKER_NAME: 'my-worker',
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'api-token',
+        CLOUDFLARE_WORKER_NAME: 'my-worker',
       },
       fetchFn,
     })
@@ -224,9 +224,9 @@ describe('cloudflareBuildStatusHandler', () => {
   })
 
   it('maps Cloudflare API errors into a concise endpoint response', async () => {
-    vi.stubEnv('CF_ACCOUNT_ID', 'account-id')
-    vi.stubEnv('CF_API_TOKEN', 'api-token')
-    vi.stubEnv('CF_WORKER_TAG', 'worker-tag')
+    vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'account-id')
+    vi.stubEnv('CLOUDFLARE_API_TOKEN', 'api-token')
+    vi.stubEnv('CLOUDFLARE_WORKER_TAG', 'worker-tag')
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json(
         {

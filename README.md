@@ -35,12 +35,12 @@ export default buildConfig({
 Add the Cloudflare credentials to your server environment file, usually `.env`:
 
 ```env
-CF_ACCOUNT_ID=your-account-id
-CF_API_TOKEN=your-api-token
-CF_WORKER_TAG=your-worker-tag
+CLOUDFLARE_ACCOUNT_ID=your-account-id
+CLOUDFLARE_API_TOKEN=your-api-token
+CLOUDFLARE_WORKER_TAG=your-worker-tag
 ```
 
-If you prefer selecting the Worker by name instead of tag, use `CF_WORKER_NAME` instead of `CF_WORKER_TAG`.
+If you prefer selecting the Worker by name instead of tag, use `CLOUDFLARE_WORKER_NAME` instead of `CLOUDFLARE_WORKER_TAG`.
 
 If needed, refresh the generated Payload admin import map file, usually `app/(payload)/admin/importMap.js`:
 
@@ -52,19 +52,19 @@ pnpm payload generate:importmap
 
 Required server-side env vars:
 
-- `CF_ACCOUNT_ID`
-- `CF_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
 
 Worker selector:
 
-- `CF_WORKER_TAG` is preferred
-- `CF_WORKER_NAME` can be used instead; the plugin resolves it to the immutable Worker tag on the server
+- `CLOUDFLARE_WORKER_TAG` is preferred
+- `CLOUDFLARE_WORKER_NAME` can be used instead; the plugin resolves it to the immutable Worker tag on the server
 
 Optional live-site link:
 
 - `PUBLIC_SITE_URL`
 
-The Cloudflare token needs Workers Builds Configuration edit access. If using `CF_WORKER_NAME` or fetching the tag manually, it also needs Workers Scripts read access.
+The Cloudflare token needs Workers Builds Configuration edit access. If using `CLOUDFLARE_WORKER_NAME` or fetching the tag manually, it also needs Workers Scripts read access.
 
 ## Get the Worker Tag
 
@@ -93,18 +93,18 @@ $response.result | ForEach-Object {
 Bash:
 
 ```bash
-curl -s "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/workers/scripts" \
-  --header "Authorization: Bearer $CF_API_TOKEN" \
+curl -s "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts" \
+  --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
   | jq '.result[] | {name: .id, tag: .tag}'
 ```
 
 Copy the `tag` for your Worker into `.env`:
 
 ```env
-CF_WORKER_TAG=1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
+CLOUDFLARE_WORKER_TAG=1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d
 ```
 
-After `CF_WORKER_TAG` is set, the plugin does not need Workers Scripts read access for the Worker-name lookup.
+After `CLOUDFLARE_WORKER_TAG` is set, the plugin does not need Workers Scripts read access for the Worker-name lookup.
 
 ## What It Adds
 

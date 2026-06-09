@@ -170,13 +170,13 @@ async function resolveWorkerTag(args: {
 }): Promise<string> {
   const { accountId, apiToken, env, fetchFn } = args
 
-  if (env.CF_WORKER_TAG) {
-    return env.CF_WORKER_TAG
+  if (env.CLOUDFLARE_WORKER_TAG) {
+    return env.CLOUDFLARE_WORKER_TAG
   }
 
-  if (!env.CF_WORKER_NAME) {
+  if (!env.CLOUDFLARE_WORKER_NAME) {
     throw new CloudflareApiError(
-      'Cloudflare worker is not configured. Set CF_WORKER_NAME or CF_WORKER_TAG.',
+      'Cloudflare worker is not configured. Set CLOUDFLARE_WORKER_NAME or CLOUDFLARE_WORKER_TAG.',
       500,
     )
   }
@@ -186,7 +186,7 @@ async function resolveWorkerTag(args: {
     fetchFn,
     path: `/accounts/${accountId}/workers/scripts`,
   })
-  const workerName = env.CF_WORKER_NAME
+  const workerName = env.CLOUDFLARE_WORKER_NAME
   const script =
     scripts.find((item) => item.id === workerName) ||
     scripts.find((item) => item.id.toLowerCase() === workerName.toLowerCase())
@@ -226,8 +226,8 @@ export async function getCloudflareBuildStatus(args: {
 } = {}): Promise<CloudflareBuildStatusResponse> {
   const env = args.env ?? process.env
   const fetchFn = args.fetchFn ?? fetch
-  const accountId = env.CF_ACCOUNT_ID
-  const apiToken = env.CF_API_TOKEN
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID
+  const apiToken = env.CLOUDFLARE_API_TOKEN
   const siteUrl = getSiteUrl(env)
 
   if (!accountId || !apiToken) {
