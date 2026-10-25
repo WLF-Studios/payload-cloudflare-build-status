@@ -173,6 +173,26 @@ Each badge shows the publisher's first name, such as `Emily: Building`. If multi
 
 While building, the badge estimates progress using the average duration of the ten most recent builds completed before this build started, plus 20% overhead. It uses the available completed builds when fewer than ten exist. The existing status request still fetches only 10 recent builds. Active, queued, and invalid-duration records are excluded from the average, without adding API calls. At the estimated duration it switches back to elapsed time, so an unfinished build never displays 100%. Without a previous completed build, it shows elapsed time.
 
+## Link to the Published Page
+
+Pass an optional site-relative `pagePath` when recording the publisher:
+
+```ts
+await recordCloudflareBuildPublisher({ req, response, pagePath: '/golf/' })
+```
+
+The path is stored alongside the publisher and resolved against `PUBLIC_SITE_URL`. Use your application's public routing helpers to supply the base public page path. Hover text on queued, building, and successful builds contains only the full page URL. Failed and canceled builds show an editor-friendly explanation instead. Only successful builds are clickable. Without a recorded page path, successful builds link to `PUBLIC_SITE_URL`; queued, running, failed, and canceled builds are never links. If Cloudflare reuses a pending build, both its original publisher and page path are retained. Existing publisher records remain supported.
+
+Each completed build stays visible separately for up to three minutes after its Cloudflare completion time, including after admin navigation or a reload. A newer successful publish immediately clears older failed and canceled badges, even when it was triggered from another page, because the full site is live. Queued or running retries do not clear errors, and newer failures remain visible. Separate successful badges keep their own three-minute windows. Once all completed builds expire, the badge returns to a plain green `Live` link to `PUBLIC_SITE_URL`, without a publisher or duration. The same badge appears when there are no builds, and it is not clickable without `PUBLIC_SITE_URL`. Expiry uses server time so an incorrect browser clock does not shorten or stretch the window. The timer uses the existing ten-build response and does not add polling or Cloudflare requests. This restores completed builds that are still in those ten recent records; builds that have already fallen outside that history cannot be restored.
+
+## Failure Explanations
+
+Failed and canceled builds show one plain sentence on hover. Known log signatures identify content, media, code, publishing checks, dependency, connection, and service failures. Unknown failures use a general sentence asking a developer to check the build log. Cancellations are only described as replaced when the log explicitly identifies a newer publish.
+
+The server downloads all log pages only for failed or canceled builds still inside the three-minute window. It stores the resulting sentence in Payload KV under `cloudflare-build-error:<buildId>`; subsequent polls and reloads reuse it. With the default database KV adapter the cache survives server restarts. Raw log text is never stored in that cache or sent to the browser. Failed log requests leave the status available with the general sentence and are retried on a later status request.
+
+`Error` and `Config missing` also show safe explanations. Detailed API errors are logged on the server. The research downloader in `scripts/` is for local development only, is excluded from the package, and saves potentially sensitive raw responses under the git-ignored `.local/` directory.
+
 ## Development
 
 For local plugin development, use the internal `dev/` app:
@@ -215,9 +235,9 @@ Active badges use Cloudflare's structured build events to show Initializing, Clo
 
 The GitHub Actions workflows follow the `payload-nested-docs-page-tree` release pattern:
 
-- CI checks types, plugin tests, and the package build on pull requests and pushes to `main`.
+- CI checks types, source lint, plugin tests, and the package build on pull requests and pushes to `main`.
 - Publishing a GitHub Release runs `.github/workflows/publish.yml` once. Manual publishing is available through `workflow_dispatch` with a required tag.
-- The release tag must match `package.json`, for example `v1.2.0` for version `1.2.0`.
+- The release tag must match `package.json`, for example `v1.3.0` for version `1.3.0`.
 - Configure npm Trusted Publishing for owner `WLF-Studios`, repository `payload-cloudflare-build-status`, and workflow `publish.yml`. Publishing uses GitHub OIDC and npm provenance.
 
 Commit and push the version bump and workflows before creating the release. A local commit alone does not publish the package.

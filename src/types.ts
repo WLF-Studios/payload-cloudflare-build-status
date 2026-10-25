@@ -39,6 +39,7 @@ export interface CloudflareBuildStatusStage {
 
 export interface CloudflareBuildStatusWorkerBuild {
   createdOn: string
+  errorReason?: string
   id: string
   isActive: boolean
   isQueued: boolean
@@ -55,8 +56,12 @@ export interface CloudflareBuildStatusWorkerBuild {
 export interface CloudflareBuildStatusResponse {
   build: CloudflareBuildStatusWorkerBuild | null
   builds: CloudflareBuildStatusWorkerBuild[]
+  /** Legacy endpoints may still return this; clients must not display raw errors. */
   error?: string
+  errorReason?: string
   queuedBuilds: CloudflareBuildStatusWorkerBuild[]
+  /** Always sent by this endpoint; optional for older endpoint compatibility. */
+  serverTime?: string
   siteUrl?: string
   status: 'error' | 'not_configured' | 'ok'
 }

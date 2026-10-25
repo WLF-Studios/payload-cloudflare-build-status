@@ -146,3 +146,79 @@ it('keeps build status available when publisher storage cannot be read', async (
     status: 'ok',
   })
 })
+
+it.each(['running', 'queued', 'stopped'])(
+  'restores a page URL for a %s build and supports older publisher records',
+  async (status) => {
+    await plugin.recordCloudflareBuildPublisher({
+      pagePath: '/golf/',
+      req,
+      response: Response.json({ build_uuid: 'page' }),
+    })
+    await plugin.recordCloudflareBuildPublisher({
+      pagePath: '/wrong/',
+      req,
+      response: Response.json({ already_exists: true, build_uuid: 'page' }),
+    })
+    values.set('cloudflare-build-publisher:legacy', 'Samantha Brown')
+    vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'account')
+    vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token')
+    vi.stubEnv('CLOUDFLARE_WORKER_TAG', 'worker')
+    vi.stubEnv('PUBLIC_SITE_URL', 'https://example.com')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            result: [
+              {
+                build_outcome: status === 'stopped' ? 'success' : undefined,
+                build_uuid: 'page',
+                status,
+              },
+              { build_outcome: 'success', build_uuid: 'legacy', status: 'stopped' },
+            ],
+            success: true,
+          }),
+        ),
+      ),
+    )
+    const data = await (await cloudflareBuildStatusHandler(req)).json()
+    expect(data.build).toMatchObject({
+      trigger: { publisher: 'Emily' },
+      url: 'https://example.com/golf/',
+    })
+    expect(data.builds[1]).toMatchObject({
+      trigger: { publisher: 'Samantha.B' },
+      url: 'https://example.com',
+    })
+  },
+)
+
+it.each(['//elsewhere.test/path', '/\\elsewhere.test/path', 'javascript:alert(1)'])(
+  'does not turn an invalid page path into an off-site link: %s',
+  async (pagePath) => {
+    await plugin.recordCloudflareBuildPublisher({
+      pagePath,
+      req,
+      response: Response.json({ build_uuid: 'page' }),
+    })
+    vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'account')
+    vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token')
+    vi.stubEnv('CLOUDFLARE_WORKER_TAG', 'worker')
+    vi.stubEnv('PUBLIC_SITE_URL', 'https://example.com')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          Response.json({
+            result: [{ build_outcome: 'success', build_uuid: 'page', status: 'stopped' }],
+            success: true,
+          }),
+        ),
+      ),
+    )
+    const data = await (await cloudflareBuildStatusHandler(req)).json()
+    expect(data.build.url).toBe('https://example.com')
+  },
+)

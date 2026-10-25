@@ -1,4 +1,4 @@
-import type { PayloadHandler } from 'payload'
+import type { PayloadHandler, PayloadRequest } from 'payload'
 
 import type {
   CloudflareBuildStatusResponse,
@@ -7,7 +7,10 @@ import type {
   CloudflareBuildStatusWorkerBuild,
 } from '../types.js'
 
+import { classifyBuildFailure } from '../buildFailureReason.js'
+import { getVisibleBuilds } from '../buildVisibility.js'
 import { formatBuildPublishers, publisherKey } from '../publisher.js'
+import { statusMessages } from '../statusMessages.js'
 
 export const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4'
 
@@ -73,6 +76,7 @@ async function fetchCloudflareResult<T>(args: {
   const response = await fetchFn(`${CLOUDFLARE_API_BASE}${path}`, {
     cache: 'no-store',
     headers: getAuthHeaders(apiToken),
+    signal: AbortSignal.timeout(15_000),
   })
   const raw = await response.text()
   let data: CloudflareResultBody | null = null
@@ -165,11 +169,14 @@ function formatWorkersBuild(
 }
 
 interface WorkersBuildLogs {
+  cursor?: string
   events?: Array<{
     ended_on?: null | string
     started_on: string
     type: string
   }>
+  lines?: Array<[number, string]>
+  truncated?: boolean
 }
 
 async function addLiveStages(args: {
@@ -257,23 +264,90 @@ async function resolveWorkerTag(args: {
 
 function toUserError(error: unknown): { message: string; status: number } {
   if (error instanceof CloudflareApiError) {
-    if (error.code === 10000) {
-      return {
-        message:
-          'Cloudflare authentication failed. Workers Builds requires a user-scoped API token with Workers Builds read access.',
-        status: error.status || 401,
-      }
+    const status = error.status >= 400 && error.status < 600 ? error.status : 502
+    let message: string = statusMessages.status
+    if (error.code === 10000 || status === 401 || status === 403) {
+      message =
+        'Build status cannot connect to the publishing service; a developer needs to restore its access.'
+    } else if (status === 404) {
+      message = 'The publishing site could not be found; a developer needs to check its setup.'
+    } else if (status === 429) {
+      message = 'Build status is receiving too many requests; try again shortly.'
+    } else if (status >= 500) {
+      message = 'The publishing service is temporarily unavailable; try again shortly.'
     }
+    return { message, status }
+  }
+  return { message: statusMessages.status, status: 500 }
+}
 
-    return {
-      message: error.message,
-      status: error.status || 500,
+async function addFailureReason(
+  req: PayloadRequest,
+  build: CloudflareBuildStatusWorkerBuild,
+): Promise<void> {
+  const status = build.latestStage.status
+  if (build.isActive || build.isQueued || !['canceled', 'failure'].includes(status)) {
+    return
+  }
+  const key = `cloudflare-build-error:${build.id}`
+  try {
+    const cached = await req.payload.kv.get<string>(key)
+    if (typeof cached === 'string' && cached) {
+      build.errorReason = cached
+      return
     }
+  } catch (error) {
+    req.payload.logger.warn(
+      { err: error },
+      '[cloudflare-build-status] Could not read cached failure reason',
+    )
   }
 
-  return {
-    message: 'Failed to connect to Cloudflare API',
-    status: 500,
+  try {
+    const lines: string[] = []
+    const cursors = new Set<string>()
+    let cursor: string | undefined
+    do {
+      const logs = await fetchCloudflareResult<WorkersBuildLogs>({
+        apiToken: process.env.CLOUDFLARE_API_TOKEN!,
+        fetchFn: fetch,
+        path: `/accounts/${process.env.CLOUDFLARE_ACCOUNT_ID}/builds/builds/${encodeURIComponent(build.id)}/logs${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`,
+      })
+      if (
+        !Array.isArray(logs?.lines) ||
+        typeof logs.truncated !== 'boolean' ||
+        !logs.lines.every((line) => Array.isArray(line) && typeof line[1] === 'string')
+      ) {
+        throw new Error('Unexpected Cloudflare log response')
+      }
+      lines.push(...logs.lines.map((line) => line[1]))
+      if (!logs.truncated) {
+        break
+      }
+      if (!logs.cursor || cursors.has(logs.cursor)) {
+        throw new Error('Incomplete Cloudflare log pagination')
+      }
+      cursor = logs.cursor
+      cursors.add(cursor)
+    } while (cursor)
+    build.errorReason = classifyBuildFailure(lines.join('\n'), {
+      canceled: status === 'canceled',
+    }).reason
+  } catch (error) {
+    req.payload.logger.warn(
+      { err: error },
+      '[cloudflare-build-status] Could not read failed build logs',
+    )
+    return
+  }
+
+  try {
+    await req.payload.kv.set(key, build.errorReason)
+  } catch (error) {
+    req.payload.logger.warn(
+      { err: error },
+      '[cloudflare-build-status] Could not cache failure reason',
+    )
   }
 }
 
@@ -289,12 +363,13 @@ export async function getCloudflareBuildStatus(
   const apiToken = env.CLOUDFLARE_API_TOKEN
   const siteUrl = getSiteUrl(env)
 
-  if (!accountId || !apiToken) {
+  if (!accountId || !apiToken || (!env.CLOUDFLARE_WORKER_TAG && !env.CLOUDFLARE_WORKER_NAME)) {
     return {
       build: null,
       builds: [],
-      error: 'Cloudflare credentials not configured',
+      errorReason: statusMessages.config,
       queuedBuilds: [],
+      serverTime: new Date().toISOString(),
       siteUrl,
       status: 'not_configured',
     }
@@ -317,6 +392,7 @@ export async function getCloudflareBuildStatus(
       build: null,
       builds: [],
       queuedBuilds: [],
+      serverTime: new Date().toISOString(),
       siteUrl,
       status: 'ok',
     }
@@ -344,6 +420,7 @@ export async function getCloudflareBuildStatus(
     queuedBuilds: formattedBuilds.filter((build) =>
       otherQueuedBuilds.some((queued) => queued.build_uuid === build.id),
     ),
+    serverTime: new Date().toISOString(),
     siteUrl,
     status: 'ok',
   }
@@ -355,8 +432,9 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
       {
         build: null,
         builds: [],
-        error: 'Unauthorized',
+        errorReason: 'Your CMS session has ended; sign in again to see publishing progress.',
         queuedBuilds: [],
+        serverTime: new Date().toISOString(),
         siteUrl: getSiteUrl(process.env),
         status: 'error',
       } satisfies CloudflareBuildStatusResponse,
@@ -368,13 +446,42 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
 
   try {
     const result = await getCloudflareBuildStatus()
+    if (result.status === 'not_configured') {
+      const missing = ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN'].filter(
+        (name) => !process.env[name],
+      )
+      if (!process.env.CLOUDFLARE_WORKER_TAG && !process.env.CLOUDFLARE_WORKER_NAME) {
+        missing.push('CLOUDFLARE_WORKER_TAG or CLOUDFLARE_WORKER_NAME')
+      }
+      req.payload.logger.warn({ missing }, '[cloudflare-build-status] Missing configuration')
+    }
+    await Promise.all(
+      getVisibleBuilds(result.builds, Date.now()).map((build) => addFailureReason(req, build)),
+    )
 
     try {
       await Promise.all(
         result.builds.map(async (build) => {
-          const publisher = await req.payload.kv.get<string>(publisherKey(build.id))
+          const stored = await req.payload.kv.get<
+            { pagePath?: string; publisher?: string } | string
+          >(publisherKey(build.id))
+          const publisher = typeof stored === 'string' ? stored : stored?.publisher
           if (typeof publisher === 'string' && publisher) {
             build.trigger.publisher = publisher
+          }
+          const pagePath = typeof stored === 'object' ? stored?.pagePath : undefined
+          if (
+            result.siteUrl &&
+            typeof pagePath === 'string' &&
+            pagePath.startsWith('/') &&
+            !pagePath.startsWith('//') &&
+            !pagePath.includes('\\')
+          ) {
+            const site = new URL(result.siteUrl)
+            const page = new URL(pagePath, site)
+            if (page.origin === site.origin && ['http:', 'https:'].includes(page.protocol)) {
+              build.url = page.toString()
+            }
           }
         }),
       )
@@ -387,16 +494,18 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
       req.payload.logger.warn({ err: error }, '[cloudflare-build-status] Could not read publishers')
     }
 
-    return Response.json(result)
+    return Response.json({ ...result, serverTime: new Date().toISOString() })
   } catch (error) {
+    req.payload.logger.warn({ err: error }, '[cloudflare-build-status] Could not read build status')
     const userError = toUserError(error)
 
     return Response.json(
       {
         build: null,
         builds: [],
-        error: userError.message,
+        errorReason: userError.message,
         queuedBuilds: [],
+        serverTime: new Date().toISOString(),
         siteUrl: getSiteUrl(process.env),
         status: 'error',
       } satisfies CloudflareBuildStatusResponse,

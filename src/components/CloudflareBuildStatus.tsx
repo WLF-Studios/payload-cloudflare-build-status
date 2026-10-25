@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { CloudflareBuildStatusResponse, CloudflareBuildStatusWorkerBuild } from '../types.js'
 
+import { getBuildExpiresAt, getVisibleBuilds } from '../buildVisibility.js'
+import { statusMessages } from '../statusMessages.js'
 import classes from './CloudflareBuildStatus.module.css'
 import { installFetchInterceptor } from './fetchInterceptor.js'
 
@@ -125,7 +127,6 @@ function getStatusLabel(args: {
 }): {
   color: string
   label: string
-  title: string
 } {
   const { buildDuration, data, error, isLoading } = args
 
@@ -133,7 +134,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.loading,
       label: 'Loading',
-      title: 'Loading Cloudflare build status',
     }
   }
 
@@ -141,7 +141,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.error,
       label: 'Error',
-      title: error || data?.error || 'Cloudflare build status error',
     }
   }
 
@@ -149,7 +148,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.idle,
       label: 'Config missing',
-      title: data.error || 'Cloudflare credentials are not configured',
     }
   }
 
@@ -157,9 +155,8 @@ function getStatusLabel(args: {
 
   if (!build) {
     return {
-      color: statusColors.idle,
-      label: 'Ready',
-      title: 'No Cloudflare Worker build found',
+      color: statusColors.success,
+      label: 'Live',
     }
   }
 
@@ -167,7 +164,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.idle,
       label: 'Queued',
-      title: 'Cloudflare Worker build queued',
     }
   }
 
@@ -183,7 +179,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.active,
       label,
-      title: `Cloudflare Worker build: ${label}`,
     }
   }
 
@@ -191,7 +186,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.success,
       label: buildDuration === null ? 'Live' : `Published in ${formatTime(buildDuration)}`,
-      title: 'Cloudflare Worker build succeeded',
     }
   }
 
@@ -199,7 +193,6 @@ function getStatusLabel(args: {
     return {
       color: statusColors.error,
       label: 'Failed',
-      title: 'Cloudflare Worker build failed',
     }
   }
 
@@ -207,14 +200,12 @@ function getStatusLabel(args: {
     return {
       color: statusColors.canceled,
       label: 'Canceled',
-      title: 'Cloudflare Worker build canceled',
     }
   }
 
   return {
     color: statusColors.idle,
     label: 'Ready',
-    title: 'Cloudflare Worker build status ready',
   }
 }
 
@@ -227,11 +218,12 @@ export const CloudflareBuildStatus = () => {
   const activePollIntervalMs =
     (clientPluginConfig.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS) * 1000
   const [data, setData] = useState<CloudflareBuildStatusResponse | null>(null)
-  const [observedBuildIDs, setObservedBuildIDs] = useState<Set<string>>(() => new Set())
+  const [now, setNow] = useState(Date.now)
   const [error, setError] = useState<null | string>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [postSaveWatchUntil, setPostSaveWatchUntil] = useState<null | number>(null)
   const requestSequenceRef = useRef(0)
+  const clockOffsetRef = useRef(0)
 
   const statusURL = useMemo(
     () =>
@@ -256,24 +248,16 @@ export const CloudflareBuildStatus = () => {
         return null
       }
 
-      if (response.ok && nextData.status === 'ok') {
-        setObservedBuildIDs((previous) => {
-          const ids = new Set(previous)
-          for (const build of getBuilds(nextData)) {
-            if (build.isActive || build.isQueued) {
-              ids.add(build.id)
-            }
-          }
-          return ids.size === previous.size ? previous : ids
-        })
-      }
+      const serverTime = Date.parse(nextData.serverTime ?? '')
+      clockOffsetRef.current = Number.isFinite(serverTime) ? serverTime - Date.now() : 0
+      setNow(Date.now() + clockOffsetRef.current)
       setData(nextData)
-      setError(response.ok ? null : nextData.error || `Error: ${response.status}`)
+      setError(response.ok ? null : nextData.errorReason || statusMessages.status)
 
       return nextData
     } catch {
       if (requestID === requestSequenceRef.current) {
-        setError('Connection error')
+        setError(statusMessages.connection)
       }
 
       return null
@@ -346,16 +330,30 @@ export const CloudflareBuildStatus = () => {
     return () => window.clearInterval(interval)
   }, [fetchStatus, shouldPoll, statusPollIntervalMs])
 
-  const observedBuilds = getBuilds(data).filter(
-    (build) => build.isActive || build.isQueued || observedBuildIDs.has(build.id),
-  )
-  const visibleBuilds = observedBuilds.length > 0 ? observedBuilds : data?.build ? [data.build] : []
+  const builds = getBuilds(data)
+  const visibleBuilds = getVisibleBuilds(builds, now)
+
+  useEffect(() => {
+    const expiries = getVisibleBuilds(getBuilds(data), now)
+      .filter((build) => !build.isActive && !build.isQueued)
+      .map(getBuildExpiresAt)
+      .filter((expiry) => expiry > now)
+    if (!expiries.length) {
+      return
+    }
+    const timeout = window.setTimeout(
+      () => setNow(Date.now() + clockOffsetRef.current),
+      Math.max(0, Math.min(...expiries) - (Date.now() + clockOffsetRef.current)),
+    )
+    return () => window.clearTimeout(timeout)
+  }, [data, now])
 
   return (
     <div className={classes.wrapper} data-admin-action="cloudflare-build-status">
       {!error && data?.status === 'ok' && visibleBuilds.length > 0 ? (
         visibleBuilds.map((build) => (
           <BuildStatusBadge
+            clockOffset={clockOffsetRef.current}
             data={{ ...data, build }}
             error={null}
             isLoading={false}
@@ -363,44 +361,29 @@ export const CloudflareBuildStatus = () => {
           />
         ))
       ) : (
-        <BuildStatusBadge data={data} error={error} isLoading={isLoading} />
+        <BuildStatusBadge
+          data={data?.status === 'ok' ? { ...data, build: null } : data}
+          error={error}
+          isLoading={isLoading}
+        />
       )}
     </div>
   )
 }
 
 function BuildStatusBadge({
+  clockOffset = 0,
   data,
   error,
   isLoading,
 }: {
+  clockOffset?: number
   data: CloudflareBuildStatusResponse | null
   error: null | string
   isLoading: boolean
 }) {
-  const [buildDuration, setBuildDuration] = useState<null | number>(null)
+  const buildDuration = getBuildDurationSeconds(data?.build)
   const [elapsedTime, setElapsedTime] = useState(0)
-  const wasActiveRef = useRef(false)
-
-  useEffect(() => {
-    if (data?.build?.isActive || data?.build?.isQueued) {
-      wasActiveRef.current = true
-      setBuildDuration(null)
-
-      return
-    }
-
-    if (wasActiveRef.current && data?.build?.latestStage.status === 'success') {
-      setBuildDuration(getBuildDurationSeconds(data?.build))
-      wasActiveRef.current = false
-    }
-  }, [
-    data,
-    data?.build?.id,
-    data?.build?.isActive,
-    data?.build?.isQueued,
-    data?.build?.latestStage.status,
-  ])
 
   useEffect(() => {
     if (!data?.build?.isActive || !data.build.createdOn) {
@@ -411,7 +394,7 @@ function BuildStatusBadge({
       const start = new Date(data.build?.createdOn ?? '').getTime()
 
       if (Number.isFinite(start)) {
-        setElapsedTime(Math.max(0, Math.floor((Date.now() - start) / 1000)))
+        setElapsedTime(Math.max(0, Math.floor((Date.now() + clockOffset - start) / 1000)))
       }
     }
 
@@ -420,7 +403,7 @@ function BuildStatusBadge({
     const interval = window.setInterval(updateTimer, 1000)
 
     return () => window.clearInterval(interval)
-  }, [data?.build?.createdOn, data?.build?.isActive])
+  }, [clockOffset, data?.build?.createdOn, data?.build?.isActive])
 
   const badge = getStatusLabel({
     buildDuration,
@@ -428,16 +411,24 @@ function BuildStatusBadge({
     error,
     isLoading,
   })
-  const siteUrl = data?.siteUrl
   const build = !error && data?.status === 'ok' ? data.build : null
   const estimatedDuration = getEstimatedBuildDuration(data)
   const progress =
     estimatedDuration && elapsedTime < estimatedDuration
       ? `${Math.floor((elapsedTime / estimatedDuration) * 100)}%`
       : formatTime(elapsedTime)
-  const title = build?.trigger.publisher
-    ? `${build.trigger.publisher}: ${badge.title}`
-    : badge.title
+  let title = build?.url ?? data?.siteUrl
+  if (error) {
+    title = error
+  } else if (data?.status === 'error') {
+    title = data.errorReason || statusMessages.status
+  } else if (data?.status === 'not_configured') {
+    title = data.errorReason || statusMessages.config
+  } else if (build?.latestStage.status === 'failure') {
+    title = build.errorReason || statusMessages.failure
+  } else if (build?.latestStage.status === 'canceled') {
+    title = build.errorReason || statusMessages.canceled
+  }
   const badgeContent = (
     <>
       <span
@@ -453,12 +444,19 @@ function BuildStatusBadge({
     </>
   )
 
-  if (siteUrl) {
+  const pageUrl =
+    build && !build.isActive && !build.isQueued && build.latestStage.status === 'success'
+      ? (build.url ?? data?.siteUrl)
+      : !build && !error && data?.status === 'ok'
+        ? data.siteUrl
+        : undefined
+
+  if (pageUrl) {
     return (
       <a
         className={classes.badge}
         data-build-id={build?.id}
-        href={siteUrl}
+        href={pageUrl}
         rel="noopener noreferrer"
         target="_blank"
         title={title}
