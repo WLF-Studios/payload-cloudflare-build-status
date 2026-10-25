@@ -269,3 +269,68 @@ describe('cloudflareBuildStatusHandler', () => {
     expect(data.error).toContain('Cloudflare authentication failed')
   })
 })
+
+describe('live build stages', () => {
+  const env = {
+    CLOUDFLARE_ACCOUNT_ID: 'account-id',
+    CLOUDFLARE_API_TOKEN: 'api-token',
+    CLOUDFLARE_WORKER_TAG: 'worker-tag',
+  }
+
+  it('reads each concurrent build stage from structured events even when logs are truncated', async () => {
+    const types = ['initializing', 'cloning', 'installing_tools_and_deps', 'building', 'deploying']
+    const { calls, fetchFn } = createFetchMock([
+      Response.json({
+        result: types.map((type) => ({ build_uuid: type, status: 'running' })),
+        success: true,
+      }),
+      ...types.map((type, index) =>
+        Response.json({
+          cursor: 'more-log-lines',
+          events: types.slice(0, index + 1).map((eventType, eventIndex) => ({
+            type: eventType,
+            ended_on: eventIndex < index ? `2026-10-25T10:00:0${eventIndex + 1}.000Z` : null,
+            started_on: `2026-10-25T10:00:0${eventIndex}.000Z`,
+          })),
+          lines: [[1792873558200, 'Unrelated command output']],
+          truncated: true,
+        }),
+      ),
+    ])
+    const result = await getCloudflareBuildStatus({ env, fetchFn })
+    expect(result.builds.map((build) => build.latestStage.name)).toEqual([
+      'initializing',
+      'cloning',
+      'installing',
+      'build',
+      'deploy',
+    ])
+    expect(result.builds.every((build) => build.latestStage.status === 'active')).toBe(true)
+    expect(result.build?.latestStage.name).toBe('initializing')
+    expect(result.builds[4]?.stages[3]).toMatchObject({
+      name: 'build',
+      ended_on: '2026-10-25T10:00:04.000Z',
+      status: 'success',
+    })
+    expect(calls.slice(1).map((call) => call.url)).toEqual(
+      types.map((type) => `${CLOUDFLARE_API_BASE}/accounts/account-id/builds/builds/${type}/logs`),
+    )
+    expect(JSON.stringify(result)).not.toContain('Unrelated command output')
+  })
+
+  it('keeps build status available when events are absent or logs are forbidden', async () => {
+    const { fetchFn } = createFetchMock([
+      Response.json({
+        result: [
+          { build_uuid: 'starting', status: 'initializing' },
+          { build_uuid: 'running', status: 'running' },
+        ],
+      }),
+      Response.json({ events: [] }),
+      Response.json({ success: false }, { status: 403 }),
+    ])
+    const result = await getCloudflareBuildStatus({ env, fetchFn })
+    expect(result.status).toBe('ok')
+    expect(result.builds.map((build) => build.latestStage.name)).toEqual(['initializing', 'build'])
+  })
+})

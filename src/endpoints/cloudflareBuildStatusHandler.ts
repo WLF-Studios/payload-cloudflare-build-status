@@ -90,7 +90,7 @@ async function fetchCloudflareResult<T>(args: {
     throw new CloudflareApiError(message, response.status, firstError?.code)
   }
 
-  return (data?.result ?? null) as T
+  return (data?.result ?? data ?? null) as T
 }
 
 function mapBuildOutcomeToStageStatus(
@@ -137,7 +137,7 @@ function formatWorkersBuild(
     isQueued ? null : build.running_on || build.stopped_on || null,
   )
   const buildStage = createStage(
-    'build',
+    build.status === 'initializing' ? 'initializing' : 'build',
     isActive ? 'active' : build.status === 'stopped' ? finalStatus : 'idle',
     build.running_on || build.created_on || null,
     build.status === 'stopped' ? build.stopped_on || null : null,
@@ -164,6 +164,61 @@ function formatWorkersBuild(
   }
 }
 
+interface WorkersBuildLogs {
+  events?: Array<{
+    ended_on?: null | string
+    started_on: string
+    type: string
+  }>
+}
+
+async function addLiveStages(args: {
+  accountId: string
+  apiToken: string
+  build: CloudflareBuildStatusWorkerBuild
+  fetchFn: FetchLike
+}): Promise<void> {
+  const { accountId, apiToken, build, fetchFn } = args
+  if (!build.isActive) {
+    return
+  }
+
+  try {
+    // Events include the full stage timeline even when the log lines are truncated.
+    const logs = await fetchCloudflareResult<WorkersBuildLogs>({
+      apiToken,
+      fetchFn,
+      path: `/accounts/${accountId}/builds/builds/${encodeURIComponent(build.id)}/logs`,
+    })
+    const stageNames: Record<string, string> = {
+      building: 'build',
+      cloning: 'cloning',
+      deploying: 'deploy',
+      initializing: 'initializing',
+      installing_tools_and_deps: 'installing',
+    }
+    const stages = (logs?.events ?? []).flatMap((event) => {
+      const name = stageNames[event.type]
+      return name
+        ? [
+            createStage(
+              name,
+              event.ended_on ? 'success' : 'active',
+              event.started_on,
+              event.ended_on ?? null,
+            ),
+          ]
+        : []
+    })
+    const latestStage = stages.at(-1)
+    if (latestStage) {
+      build.stages = stages
+      build.latestStage = latestStage
+    }
+  } catch {
+    // Keep the overall build status when live events are temporarily unavailable.
+  }
+}
 async function resolveWorkerTag(args: {
   accountId: string
   apiToken: string
@@ -279,6 +334,9 @@ export async function getCloudflareBuildStatus(
   )
 
   const formattedBuilds = builds.map((build) => formatWorkersBuild(build, siteUrl))
+  await Promise.all(
+    formattedBuilds.map((build) => addLiveStages({ accountId, apiToken, build, fetchFn })),
+  )
 
   return {
     build: formattedBuilds.find((build) => build.id === currentBuild.build_uuid)!,

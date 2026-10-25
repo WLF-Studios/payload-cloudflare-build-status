@@ -172,10 +172,18 @@ function getStatusLabel(args: {
   }
 
   if (build.isActive) {
+    const stageLabels: Record<string, string> = {
+      build: 'Building',
+      cloning: 'Cloning',
+      deploy: 'Deploying',
+      initializing: 'Initializing',
+      installing: 'Installing',
+    }
+    const label = stageLabels[build.latestStage.name] ?? 'Building'
     return {
       color: statusColors.active,
-      label: 'Building',
-      title: 'Cloudflare Worker build running',
+      label,
+      title: `Cloudflare Worker build: ${label}`,
     }
   }
 

@@ -52,6 +52,8 @@ it('keeps each observed build badge after success and polls until the last build
 
   const first = build('first-build', 'active', '2026-10-25T10:00:00.000Z')
   const second = build('second-build', 'active', '2026-10-25T10:00:30.000Z')
+  first.latestStage.name = 'deploy'
+  second.latestStage.name = 'installing'
   const queued = build('queued-build', 'queued', '2026-10-25T10:00:50.000Z')
   let response: CloudflareBuildStatusResponse = {
     build: first,
@@ -73,15 +75,15 @@ it('keeps each observed build badge after success and polls until the last build
     })
     expect(container.querySelectorAll('[data-build-id]')).toHaveLength(3)
     expect(container.querySelector('[data-build-id="first-build"]')?.textContent).toBe(
-      'Emily: Building1m 0s',
+      'Emily: Deploying1m 0s',
     )
     expect(container.querySelector('[data-build-id="second-build"]')?.textContent).toBe(
-      'Tom: Building30s',
+      'Tom: Installing30s',
     )
     expect(container.querySelector('[data-build-id="queued-build"]')?.textContent).toBe('Queued')
     expect(container.querySelector('a')?.getAttribute('href')).toBe('https://example.com')
     expect(container.querySelector('[data-build-id="first-build"]')?.getAttribute('title')).toBe(
-      'Emily: Cloudflare Worker build running',
+      'Emily: Cloudflare Worker build: Deploying',
     )
 
     const finishedFirst = build('first-build', 'success', first.createdOn)
@@ -94,7 +96,7 @@ it('keeps each observed build badge after success and polls until the last build
     await act(async () => vi.advanceTimersByTimeAsync(10_000))
     expect(container.querySelectorAll('[data-build-id]')).toHaveLength(2)
     expect(container.querySelector('[data-build-id="second-build"]')?.textContent).toBe(
-      'Tom: Building40s',
+      'Tom: Installing40s',
     )
 
     expect(container.querySelector('[data-build-id="first-build"]')?.textContent).toBe(

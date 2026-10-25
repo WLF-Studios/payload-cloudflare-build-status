@@ -208,3 +208,5 @@ Then in the external consumer app:
 ```bash
 pnpm add /path/payload-cloudflare-build-status-*.tgz
 ```
+
+Active badges use Cloudflare's structured build events to show Initializing, Cloning, Installing, Building, or Deploying alongside the publisher and estimated overall progress. If live events are unavailable, the badge falls back to the overall build status. Raw build logs are never returned to the admin client.
