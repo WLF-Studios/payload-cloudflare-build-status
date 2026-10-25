@@ -30,6 +30,9 @@ jobs:
       - name: Typecheck
         run: pnpm exec tsc --noEmit
 
+      - name: Lint
+        run: pnpm exec eslint src
+
       - name: Plugin tests
         run: pnpm exec vitest run src
 
