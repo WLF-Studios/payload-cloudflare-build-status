@@ -47,12 +47,14 @@ export interface CloudflareBuildStatusWorkerBuild {
   stages: CloudflareBuildStatusStage[]
   trigger: {
     branch?: string
+    publisher?: string
   }
   url?: string
 }
 
 export interface CloudflareBuildStatusResponse {
   build: CloudflareBuildStatusWorkerBuild | null
+  builds: CloudflareBuildStatusWorkerBuild[]
   error?: string
   queuedBuilds: CloudflareBuildStatusWorkerBuild[]
   siteUrl?: string

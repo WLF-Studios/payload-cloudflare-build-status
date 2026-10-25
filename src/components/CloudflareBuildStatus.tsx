@@ -4,7 +4,7 @@ import { useConfig } from '@payloadcms/ui'
 import { formatAdminURL } from 'payload/shared'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import type { CloudflareBuildStatusResponse } from '../types.js'
+import type { CloudflareBuildStatusResponse, CloudflareBuildStatusWorkerBuild } from '../types.js'
 
 import classes from './CloudflareBuildStatus.module.css'
 import { installFetchInterceptor } from './fetchInterceptor.js'
@@ -55,10 +55,10 @@ function formatTime(seconds: number): string {
   return `${minutes}m ${remainingSeconds}s`
 }
 
-function getBuildDurationSeconds(data: CloudflareBuildStatusResponse | null): null | number {
-  const build = data?.build
-
-  if (!build?.createdOn || build.latestStage.status !== 'success') {
+function getBuildDurationSeconds(
+  build: CloudflareBuildStatusWorkerBuild | null | undefined,
+): null | number {
+  if (!build?.createdOn) {
     return null
   }
 
@@ -78,8 +78,43 @@ function getBuildDurationSeconds(data: CloudflareBuildStatusResponse | null): nu
   return Math.floor((end - start) / 1000)
 }
 
+function getBuilds(data: CloudflareBuildStatusResponse | null): CloudflareBuildStatusWorkerBuild[] {
+  if (Array.isArray(data?.builds)) {
+    return data.builds
+  }
+
+  // Older endpoints return only the current build and queue; API errors may return neither.
+  return [data?.build, ...(data?.queuedBuilds ?? [])].filter(
+    (build): build is CloudflareBuildStatusWorkerBuild => Boolean(build),
+  )
+}
+
+function getEstimatedBuildDuration(data: CloudflareBuildStatusResponse | null): null | number {
+  const startedAt = Date.parse(data?.build?.createdOn ?? '')
+  const completed: Array<{ endedAt: number; seconds: number }> = []
+
+  for (const build of getBuilds(data)) {
+    if (build.id === data?.build?.id || build.isActive || build.isQueued) {
+      continue
+    }
+    const endedAt = Date.parse(
+      build.stages.find((stage) => stage.name === 'deploy')?.ended_on ?? '',
+    )
+    const seconds = getBuildDurationSeconds(build)
+    if (seconds && endedAt <= startedAt) {
+      completed.push({ endedAt, seconds })
+    }
+  }
+
+  const recent = completed.sort((a, b) => b.endedAt - a.endedAt).slice(0, 10)
+  if (!recent.length) {
+    return null
+  }
+  const average = recent.reduce((total, build) => total + build.seconds, 0) / recent.length
+  return Math.ceil(average * 1.2)
+}
 function hasActiveOrQueuedBuild(data: CloudflareBuildStatusResponse | null): boolean {
-  return Boolean(data?.build?.isActive || data?.build?.isQueued || (data?.queuedBuilds.length ?? 0) > 0)
+  return getBuilds(data).some((build) => build.isActive || build.isQueued)
 }
 
 function getStatusLabel(args: {
@@ -178,18 +213,17 @@ function getStatusLabel(args: {
 export const CloudflareBuildStatus = () => {
   const { config } = useConfig()
   const clientPluginConfig = getClientPluginConfig(config)
-  const endpointPath = normalizeEndpointPath(clientPluginConfig.endpointPath ?? DEFAULT_ENDPOINT_PATH)
+  const endpointPath = normalizeEndpointPath(
+    clientPluginConfig.endpointPath ?? DEFAULT_ENDPOINT_PATH,
+  )
   const activePollIntervalMs =
     (clientPluginConfig.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS) * 1000
   const [data, setData] = useState<CloudflareBuildStatusResponse | null>(null)
-  const [buildDuration, setBuildDuration] = useState<null | number>(null)
-  const [elapsedTime, setElapsedTime] = useState(0)
+  const [observedBuildIDs, setObservedBuildIDs] = useState<Set<string>>(() => new Set())
   const [error, setError] = useState<null | string>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [postSaveWatchUntil, setPostSaveWatchUntil] = useState<null | number>(null)
-  const previousBuildIDRef = useRef<null | string>(null)
   const requestSequenceRef = useRef(0)
-  const wasActiveRef = useRef(false)
 
   const statusURL = useMemo(
     () =>
@@ -214,6 +248,17 @@ export const CloudflareBuildStatus = () => {
         return null
       }
 
+      if (response.ok && nextData.status === 'ok') {
+        setObservedBuildIDs((previous) => {
+          const ids = new Set(previous)
+          for (const build of getBuilds(nextData)) {
+            if (build.isActive || build.isQueued) {
+              ids.add(build.id)
+            }
+          }
+          return ids.size === previous.size ? previous : ids
+        })
+      }
       setData(nextData)
       setError(response.ok ? null : nextData.error || `Error: ${response.status}`)
 
@@ -239,7 +284,9 @@ export const CloudflareBuildStatus = () => {
 
   const hasActiveOrQueued = hasActiveOrQueuedBuild(data)
   const shouldPoll = hasActiveOrQueued || postSaveWatchUntil !== null
-  const statusPollIntervalMs = hasActiveOrQueued ? activePollIntervalMs : POST_SAVE_WATCH_INTERVAL_MS
+  const statusPollIntervalMs = hasActiveOrQueued
+    ? activePollIntervalMs
+    : POST_SAVE_WATCH_INTERVAL_MS
 
   useEffect(() => {
     const handleSaveComplete = () => {
@@ -291,15 +338,44 @@ export const CloudflareBuildStatus = () => {
     return () => window.clearInterval(interval)
   }, [fetchStatus, shouldPoll, statusPollIntervalMs])
 
-  useEffect(() => {
-    const buildID = data?.build?.id ?? null
-    if (buildID !== previousBuildIDRef.current) {
-      previousBuildIDRef.current = buildID
-      setBuildDuration(null)
-      wasActiveRef.current = false
-    }
+  const observedBuilds = getBuilds(data).filter(
+    (build) => build.isActive || build.isQueued || observedBuildIDs.has(build.id),
+  )
+  const visibleBuilds = observedBuilds.length > 0 ? observedBuilds : data?.build ? [data.build] : []
 
-    if (hasActiveOrQueued) {
+  return (
+    <div className={classes.wrapper} data-admin-action="cloudflare-build-status">
+      {!error && data?.status === 'ok' && visibleBuilds.length > 0 ? (
+        visibleBuilds.map((build) => (
+          <BuildStatusBadge
+            data={{ ...data, build }}
+            error={null}
+            isLoading={false}
+            key={build.id}
+          />
+        ))
+      ) : (
+        <BuildStatusBadge data={data} error={error} isLoading={isLoading} />
+      )}
+    </div>
+  )
+}
+
+function BuildStatusBadge({
+  data,
+  error,
+  isLoading,
+}: {
+  data: CloudflareBuildStatusResponse | null
+  error: null | string
+  isLoading: boolean
+}) {
+  const [buildDuration, setBuildDuration] = useState<null | number>(null)
+  const [elapsedTime, setElapsedTime] = useState(0)
+  const wasActiveRef = useRef(false)
+
+  useEffect(() => {
+    if (data?.build?.isActive || data?.build?.isQueued) {
       wasActiveRef.current = true
       setBuildDuration(null)
 
@@ -307,7 +383,7 @@ export const CloudflareBuildStatus = () => {
     }
 
     if (wasActiveRef.current && data?.build?.latestStage.status === 'success') {
-      setBuildDuration(getBuildDurationSeconds(data))
+      setBuildDuration(getBuildDurationSeconds(data?.build))
       wasActiveRef.current = false
     }
   }, [
@@ -316,8 +392,6 @@ export const CloudflareBuildStatus = () => {
     data?.build?.isActive,
     data?.build?.isQueued,
     data?.build?.latestStage.status,
-    data?.queuedBuilds.length,
-    hasActiveOrQueued,
   ])
 
   useEffect(() => {
@@ -329,7 +403,7 @@ export const CloudflareBuildStatus = () => {
       const start = new Date(data.build?.createdOn ?? '').getTime()
 
       if (Number.isFinite(start)) {
-        setElapsedTime(Math.floor((Date.now() - start) / 1000))
+        setElapsedTime(Math.max(0, Math.floor((Date.now() - start) / 1000)))
       }
     }
 
@@ -347,43 +421,48 @@ export const CloudflareBuildStatus = () => {
     isLoading,
   })
   const siteUrl = data?.siteUrl
-  const queuedCount = (data?.queuedBuilds.length ?? 0) + (data?.build?.isQueued ? 1 : 0)
+  const build = !error && data?.status === 'ok' ? data.build : null
+  const estimatedDuration = getEstimatedBuildDuration(data)
+  const progress =
+    estimatedDuration && elapsedTime < estimatedDuration
+      ? `${Math.floor((elapsedTime / estimatedDuration) * 100)}%`
+      : formatTime(elapsedTime)
+  const title = build?.trigger.publisher
+    ? `${build.trigger.publisher}: ${badge.title}`
+    : badge.title
   const badgeContent = (
     <>
       <span
-        className={[
-          classes.dot,
-          data?.build?.isActive ? classes.dotActive : '',
-        ].join(' ')}
+        className={[classes.dot, build?.isActive ? classes.dotActive : ''].join(' ')}
         style={{ backgroundColor: badge.color }}
       />
-      <span className={classes.text}>{badge.label}</span>
-      {data?.build?.isActive ? <span className={classes.timer}>{formatTime(elapsedTime)}</span> : null}
-      {queuedCount > 0 ? <span className={classes.metaText}>Queue {queuedCount}</span> : null}
+      <span className={classes.text}>
+        {build?.trigger.publisher ? `${build.trigger.publisher}: ` : ''}
+        {badge.label}
+      </span>
+
+      {build?.isActive ? <span className={classes.timer}>{progress}</span> : null}
     </>
   )
 
   if (siteUrl) {
     return (
-      <div className={classes.wrapper} data-admin-action="cloudflare-build-status">
-        <a
-          className={classes.badge}
-          href={siteUrl}
-          rel="noopener noreferrer"
-          target="_blank"
-          title={siteUrl}
-        >
-          {badgeContent}
-        </a>
-      </div>
+      <a
+        className={classes.badge}
+        data-build-id={build?.id}
+        href={siteUrl}
+        rel="noopener noreferrer"
+        target="_blank"
+        title={title}
+      >
+        {badgeContent}
+      </a>
     )
   }
 
   return (
-    <div className={classes.wrapper} data-admin-action="cloudflare-build-status">
-      <div className={classes.badge} title={badge.title}>
-        {badgeContent}
-      </div>
+    <div className={classes.badge} data-build-id={build?.id} title={title}>
+      {badgeContent}
     </div>
   )
 }

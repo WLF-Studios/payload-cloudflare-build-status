@@ -4,6 +4,7 @@ import type { CloudflareBuildStatusPluginConfig } from './types.js'
 
 import { cloudflareBuildStatusHandler } from './endpoints/cloudflareBuildStatusHandler.js'
 
+export { recordCloudflareBuildPublisher } from './publisher.js'
 export type { CloudflareBuildStatusPluginConfig } from './types.js'
 
 export const cloudflareBuildStatusPluginDefaults = {

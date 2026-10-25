@@ -89,7 +89,8 @@
     "sort-package-json": "^2.10.0",
     "typescript": "5.7.3",
     "vite-tsconfig-paths": "6.0.5",
-    "vitest": "4.0.18"
+    "vitest": "4.0.18",
+    "happy-dom": "20.9.0"
   },
   "peerDependencies": {
     "payload": "^3.84.0"

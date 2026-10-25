@@ -120,7 +120,7 @@ describe('getCloudflareBuildStatus', () => {
     })
   })
 
-  it('selects an active build and keeps other queued builds separate', async () => {
+  it('returns each concurrent build while keeping the current build and queue compatible', async () => {
     const { fetchFn } = createFetchMock([
       Response.json({
         result: [
@@ -134,6 +134,11 @@ describe('getCloudflareBuildStatus', () => {
             build_uuid: 'queued-build',
             created_on: '2026-04-24T10:02:00.000Z',
             status: 'queued',
+          },
+          {
+            build_uuid: 'initializing-build',
+            created_on: '2026-04-24T10:02:30.000Z',
+            status: 'initializing',
           },
           {
             build_uuid: 'running-build',
@@ -156,7 +161,7 @@ describe('getCloudflareBuildStatus', () => {
     })
 
     expect(result.build).toMatchObject({
-      id: 'running-build',
+      id: 'initializing-build',
       isActive: true,
       latestStage: {
         status: 'active',
@@ -164,6 +169,13 @@ describe('getCloudflareBuildStatus', () => {
     })
     expect(result.queuedBuilds).toHaveLength(1)
     expect(result.queuedBuilds[0]?.id).toBe('queued-build')
+    expect(result.builds.map((build) => build.id)).toEqual([
+      'finished-build',
+      'queued-build',
+      'initializing-build',
+      'running-build',
+    ])
+    expect(result.builds.filter((build) => build.isActive)).toHaveLength(2)
   })
 
   it('resolves a worker name to its immutable worker tag', async () => {
@@ -215,6 +227,7 @@ describe('cloudflareBuildStatusHandler', () => {
     expect(response.status).toBe(401)
     expect(data).toEqual({
       build: null,
+      builds: [],
       error: 'Unauthorized',
       queuedBuilds: [],
       siteUrl: 'https://example.com',

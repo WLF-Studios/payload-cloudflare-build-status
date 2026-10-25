@@ -7,6 +7,8 @@ import type {
   CloudflareBuildStatusWorkerBuild,
 } from '../types.js'
 
+import { formatBuildPublishers, publisherKey } from '../publisher.js'
+
 export const CLOUDFLARE_API_BASE = 'https://api.cloudflare.com/client/v4'
 
 type CloudflareBuildStatusEnv = Record<string, string | undefined>
@@ -62,13 +64,11 @@ function getSiteUrl(env: CloudflareBuildStatusEnv): string | undefined {
   return env.PUBLIC_SITE_URL || undefined
 }
 
-async function fetchCloudflareResult<T>(
-  args: {
-    apiToken: string
-    fetchFn: FetchLike
-    path: string
-  },
-): Promise<T> {
+async function fetchCloudflareResult<T>(args: {
+  apiToken: string
+  fetchFn: FetchLike
+  path: string
+}): Promise<T> {
   const { apiToken, fetchFn, path } = args
   const response = await fetchFn(`${CLOUDFLARE_API_BASE}${path}`, {
     cache: 'no-store',
@@ -85,7 +85,8 @@ async function fetchCloudflareResult<T>(
 
   if (!response.ok || data?.success === false) {
     const firstError = data?.errors?.[0]
-    const message = firstError?.message || raw || `Cloudflare API request failed (${response.status})`
+    const message =
+      firstError?.message || raw || `Cloudflare API request failed (${response.status})`
     throw new CloudflareApiError(message, response.status, firstError?.code)
   }
 
@@ -102,7 +103,7 @@ function mapBuildOutcomeToStageStatus(
     terminated: 'canceled',
   }
 
-  return outcome ? statuses[outcome] ?? 'idle' : 'idle'
+  return outcome ? (statuses[outcome] ?? 'idle') : 'idle'
 }
 
 function createStage(
@@ -123,7 +124,8 @@ function formatWorkersBuild(
   build: WorkersBuild,
   siteUrl?: string,
 ): CloudflareBuildStatusWorkerBuild {
-  const createdOn = build.created_on || build.running_on || build.stopped_on || new Date().toISOString()
+  const createdOn =
+    build.created_on || build.running_on || build.stopped_on || new Date().toISOString()
   const isQueued = build.status === 'queued'
   const isActive = build.status === 'initializing' || build.status === 'running'
   const finalStatus = mapBuildOutcomeToStageStatus(build.build_outcome)
@@ -220,10 +222,12 @@ function toUserError(error: unknown): { message: string; status: number } {
   }
 }
 
-export async function getCloudflareBuildStatus(args: {
-  env?: CloudflareBuildStatusEnv
-  fetchFn?: FetchLike
-} = {}): Promise<CloudflareBuildStatusResponse> {
+export async function getCloudflareBuildStatus(
+  args: {
+    env?: CloudflareBuildStatusEnv
+    fetchFn?: FetchLike
+  } = {},
+): Promise<CloudflareBuildStatusResponse> {
   const env = args.env ?? process.env
   const fetchFn = args.fetchFn ?? fetch
   const accountId = env.CLOUDFLARE_ACCOUNT_ID
@@ -233,6 +237,7 @@ export async function getCloudflareBuildStatus(args: {
   if (!accountId || !apiToken) {
     return {
       build: null,
+      builds: [],
       error: 'Cloudflare credentials not configured',
       queuedBuilds: [],
       siteUrl,
@@ -255,6 +260,7 @@ export async function getCloudflareBuildStatus(args: {
   if (!builds.length) {
     return {
       build: null,
+      builds: [],
       queuedBuilds: [],
       siteUrl,
       status: 'ok',
@@ -272,9 +278,14 @@ export async function getCloudflareBuildStatus(args: {
     (build) => build.build_uuid !== currentBuild.build_uuid,
   )
 
+  const formattedBuilds = builds.map((build) => formatWorkersBuild(build, siteUrl))
+
   return {
-    build: formatWorkersBuild(currentBuild, siteUrl),
-    queuedBuilds: otherQueuedBuilds.map((build) => formatWorkersBuild(build, siteUrl)),
+    build: formattedBuilds.find((build) => build.id === currentBuild.build_uuid)!,
+    builds: formattedBuilds,
+    queuedBuilds: formattedBuilds.filter((build) =>
+      otherQueuedBuilds.some((queued) => queued.build_uuid === build.id),
+    ),
     siteUrl,
     status: 'ok',
   }
@@ -285,6 +296,7 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
     return Response.json(
       {
         build: null,
+        builds: [],
         error: 'Unauthorized',
         queuedBuilds: [],
         siteUrl: getSiteUrl(process.env),
@@ -299,6 +311,24 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
   try {
     const result = await getCloudflareBuildStatus()
 
+    try {
+      await Promise.all(
+        result.builds.map(async (build) => {
+          const publisher = await req.payload.kv.get<string>(publisherKey(build.id))
+          if (typeof publisher === 'string' && publisher) {
+            build.trigger.publisher = publisher
+          }
+        }),
+      )
+      await formatBuildPublishers(req, result.builds)
+      result.build = result.builds.find((build) => build.id === result.build?.id) ?? result.build
+      result.queuedBuilds = result.queuedBuilds.map(
+        (queued) => result.builds.find((build) => build.id === queued.id) ?? queued,
+      )
+    } catch (error) {
+      req.payload.logger.warn({ err: error }, '[cloudflare-build-status] Could not read publishers')
+    }
+
     return Response.json(result)
   } catch (error) {
     const userError = toUserError(error)
@@ -306,6 +336,7 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
     return Response.json(
       {
         build: null,
+        builds: [],
         error: userError.message,
         queuedBuilds: [],
         siteUrl: getSiteUrl(process.env),
