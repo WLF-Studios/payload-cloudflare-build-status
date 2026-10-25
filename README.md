@@ -210,3 +210,14 @@ pnpm add /path/payload-cloudflare-build-status-*.tgz
 ```
 
 Active badges use Cloudflare's structured build events to show Initializing, Cloning, Installing, Building, or Deploying alongside the publisher and estimated overall progress. If live events are unavailable, the badge falls back to the overall build status. Raw build logs are never returned to the admin client.
+
+## Publishing
+
+The GitHub Actions workflows follow the `payload-nested-docs-page-tree` release pattern:
+
+- CI checks types, plugin tests, and the package build on pull requests and pushes to `main`.
+- Publishing a GitHub Release runs `.github/workflows/publish.yml` once. Manual publishing is available through `workflow_dispatch` with a required tag.
+- The release tag must match `package.json`, for example `v1.2.0` for version `1.2.0`.
+- Configure npm Trusted Publishing for owner `WLF-Studios`, repository `payload-cloudflare-build-status`, and workflow `publish.yml`. Publishing uses GitHub OIDC and npm provenance.
+
+Commit and push the version bump and workflows before creating the release. A local commit alone does not publish the package.

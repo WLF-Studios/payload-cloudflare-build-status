@@ -76,6 +76,7 @@
     "eslint": "^9.23.0",
     "eslint-config-next": "16.2.3",
     "graphql": "^16.8.1",
+    "happy-dom": "20.9.0",
     "mongodb-memory-server": "10.1.4",
     "next": "16.2.3",
     "open": "^10.1.0",
@@ -89,8 +90,7 @@
     "sort-package-json": "^2.10.0",
     "typescript": "5.7.3",
     "vite-tsconfig-paths": "6.0.5",
-    "vitest": "4.0.18",
-    "happy-dom": "20.9.0"
+    "vitest": "4.0.18"
   },
   "peerDependencies": {
     "payload": "^3.84.0"
@@ -120,5 +120,13 @@
     "registry": "https://registry.npmjs.org/",
     "types": "./dist/index.d.ts"
   },
-  "dependencies": {}
+  "author": "WLF Studios",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WLF-Studios/payload-cloudflare-build-status.git"
+  },
+  "homepage": "https://github.com/WLF-Studios/payload-cloudflare-build-status#readme",
+  "bugs": {
+    "url": "https://github.com/WLF-Studios/payload-cloudflare-build-status/issues"
+  }
 }
