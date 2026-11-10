@@ -48,6 +48,7 @@ export interface CloudflareBuildStatusWorkerBuild {
   stages: CloudflareBuildStatusStage[]
   trigger: {
     branch?: string
+    label?: string
     publisher?: string
   }
   url?: string

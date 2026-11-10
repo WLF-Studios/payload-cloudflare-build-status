@@ -6,10 +6,12 @@ export const publisherKey = (buildID: string): string => `cloudflare-build-publi
 
 /** Record the authenticated publisher after a successful Cloudflare deploy-hook request. */
 export async function recordCloudflareBuildPublisher({
+  label,
   pagePath,
   req,
   response,
 }: {
+  label?: string
   pagePath?: string
   req: PayloadRequest
   response: Response
@@ -45,7 +47,9 @@ export async function recordCloudflareBuildPublisher({
 
     await req.payload.kv.set(
       publisherKey(result.build_uuid),
-      pagePath ? { pagePath, publisher } : publisher,
+      pagePath || label
+        ? { ...(label && { label }), ...(pagePath && { pagePath }), publisher }
+        : publisher,
     )
   } catch (error) {
     req.payload.logger.warn({ err: error }, '[cloudflare-build-status] Could not record publisher')

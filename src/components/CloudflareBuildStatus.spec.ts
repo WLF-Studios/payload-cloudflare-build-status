@@ -86,7 +86,7 @@ it('keeps each observed build badge after success and polls until the last build
       'Tom: Installing31%',
     )
     expect(container.querySelector('[data-build-id="queued-build"]')?.textContent).toBe('Queued')
-    expect(container.querySelector('a')).toBeNull()
+    expect(container.querySelectorAll('a[href="https://example.com"]')).toHaveLength(3)
     expect(container.querySelector('[data-build-id="first-build"]')?.getAttribute('title')).toBe(
       'https://example.com',
     )
@@ -351,7 +351,7 @@ it('restores separate completed badges after reload and expires each three minut
 })
 
 it.each(['active', 'queued', 'failure', 'canceled', 'success'] as const)(
-  'links only successful builds to their recorded page: %s',
+  'links unfailed builds to their recorded page: %s',
   async (status) => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-10-25T10:02:00.000Z'))
@@ -388,7 +388,7 @@ it.each(['active', 'queued', 'failure', 'canceled', 'success'] as const)(
             ? 'Publishing was canceled; publish again when you are ready.'
             : 'https://example.com/golf/',
       )
-      if (status === 'success') {
+      if (status !== 'failure' && status !== 'canceled') {
         expect(container.querySelector('a')?.getAttribute('href')).toBe('https://example.com/golf/')
       } else {
         expect(container.querySelector('a')).toBeNull()
@@ -399,6 +399,43 @@ it.each(['active', 'queued', 'failure', 'canceled', 'success'] as const)(
     }
   },
 )
+
+it('names what was published when the link falls back to the site', async () => {
+  vi.useFakeTimers()
+  vi.setSystemTime(new Date('2026-10-25T10:02:00.000Z'))
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
+  const build = completedBuild('global', '2026-10-25T10:01:00.000Z')
+  build.trigger.label = 'Header'
+  build.url = undefined
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          build,
+          builds: [build],
+          queuedBuilds: [],
+          siteUrl: 'https://example.com',
+          status: 'ok',
+        }),
+      ),
+    ),
+  )
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    await act(async () => {
+      root.render(createElement(CloudflareBuildStatus))
+      await Promise.resolve()
+    })
+    const link = container.querySelector('a')
+    expect(link?.getAttribute('title')).toBe('Header · https://example.com')
+    expect(link?.getAttribute('href')).toBe('https://example.com')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+})
 
 it.each(['empty', 'expired-success', 'expired-failure'])(
   'shows a plain green Live site link for %s',

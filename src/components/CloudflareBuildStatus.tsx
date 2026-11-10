@@ -417,7 +417,8 @@ function BuildStatusBadge({
     estimatedDuration && elapsedTime < estimatedDuration
       ? `${Math.floor((elapsedTime / estimatedDuration) * 100)}%`
       : formatTime(elapsedTime)
-  let title = build?.url ?? data?.siteUrl
+  const url = build?.url ?? data?.siteUrl
+  let title = build?.trigger.label && url ? `${build.trigger.label} · ${url}` : url
   if (error) {
     title = error
   } else if (data?.status === 'error') {
@@ -445,7 +446,7 @@ function BuildStatusBadge({
   )
 
   const pageUrl =
-    build && !build.isActive && !build.isQueued && build.latestStage.status === 'success'
+    build && build.latestStage.status !== 'failure' && build.latestStage.status !== 'canceled'
       ? (build.url ?? data?.siteUrl)
       : !build && !error && data?.status === 'ok'
         ? data.siteUrl

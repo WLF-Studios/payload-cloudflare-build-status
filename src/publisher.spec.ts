@@ -195,6 +195,34 @@ it.each(['running', 'queued', 'stopped'])(
   },
 )
 
+it('returns the recorded label for a build without a page path', async () => {
+  await plugin.recordCloudflareBuildPublisher({
+    label: 'Header',
+    req,
+    response: Response.json({ build_uuid: 'global' }),
+  })
+  vi.stubEnv('CLOUDFLARE_ACCOUNT_ID', 'account')
+  vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token')
+  vi.stubEnv('CLOUDFLARE_WORKER_TAG', 'worker')
+  vi.stubEnv('PUBLIC_SITE_URL', 'https://example.com')
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          result: [{ build_outcome: 'success', build_uuid: 'global', status: 'stopped' }],
+          success: true,
+        }),
+      ),
+    ),
+  )
+  const data = await (await cloudflareBuildStatusHandler(req)).json()
+  expect(data.build).toMatchObject({
+    trigger: { label: 'Header', publisher: 'Emily' },
+    url: 'https://example.com',
+  })
+})
+
 it.each(['//elsewhere.test/path', '/\\elsewhere.test/path', 'javascript:alert(1)'])(
   'does not turn an invalid page path into an off-site link: %s',
   async (pagePath) => {

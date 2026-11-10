@@ -181,7 +181,13 @@ Pass an optional site-relative `pagePath` when recording the publisher:
 await recordCloudflareBuildPublisher({ req, response, pagePath: '/golf/' })
 ```
 
-The path is stored alongside the publisher and resolved against `PUBLIC_SITE_URL`. Use your application's public routing helpers to supply the base public page path. Hover text on queued, building, and successful builds contains only the full page URL. Failed and canceled builds show an editor-friendly explanation instead. Only successful builds are clickable. Without a recorded page path, successful builds link to `PUBLIC_SITE_URL`; queued, running, failed, and canceled builds are never links. If Cloudflare reuses a pending build, both its original publisher and page path are retained. Existing publisher records remain supported.
+Without a page path, pass a `label` naming what was published, such as `Header` or `Vanity Link: /ski`. Hover text then reads `Header · https://example.com`, while the build still links to `PUBLIC_SITE_URL`:
+
+```ts
+await recordCloudflareBuildPublisher({ req, response, label: 'Header' })
+```
+
+The path is stored alongside the publisher and resolved against `PUBLIC_SITE_URL`. Use your application's public routing helpers to supply the base public page path. Hover text on queued, building, and successful builds contains only the full page URL. Failed and canceled builds show an editor-friendly explanation instead. Queued, building, and successful builds are clickable, so editors can open the page before the build finishes. Without a recorded page path, they link to `PUBLIC_SITE_URL`; failed and canceled builds are never links. If Cloudflare reuses a pending build, both its original publisher and page path are retained. Existing publisher records remain supported.
 
 Each completed build stays visible separately for up to three minutes after its Cloudflare completion time, including after admin navigation or a reload. A newer successful publish immediately clears older failed and canceled badges, even when it was triggered from another page, because the full site is live. Queued or running retries do not clear errors, and newer failures remain visible. Separate successful badges keep their own three-minute windows. Once all completed builds expire, the badge returns to a plain green `Live` link to `PUBLIC_SITE_URL`, without a publisher or duration. The same badge appears when there are no builds, and it is not clickable without `PUBLIC_SITE_URL`. Expiry uses server time so an incorrect browser clock does not shorten or stretch the window. The timer uses the existing ten-build response and does not add polling or Cloudflare requests. This restores completed builds that are still in those ten recent records; builds that have already fallen outside that history cannot be restored.
 

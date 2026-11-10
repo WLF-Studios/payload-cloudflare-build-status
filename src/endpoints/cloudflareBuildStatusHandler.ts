@@ -463,11 +463,15 @@ export const cloudflareBuildStatusHandler: PayloadHandler = async (req) => {
       await Promise.all(
         result.builds.map(async (build) => {
           const stored = await req.payload.kv.get<
-            { pagePath?: string; publisher?: string } | string
+            { label?: string; pagePath?: string; publisher?: string } | string
           >(publisherKey(build.id))
           const publisher = typeof stored === 'string' ? stored : stored?.publisher
           if (typeof publisher === 'string' && publisher) {
             build.trigger.publisher = publisher
+          }
+          const label = typeof stored === 'object' ? stored?.label : undefined
+          if (typeof label === 'string' && label) {
+            build.trigger.label = label
           }
           const pagePath = typeof stored === 'object' ? stored?.pagePath : undefined
           if (
